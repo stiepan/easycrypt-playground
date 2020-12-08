@@ -1,7 +1,7 @@
 require import Bool AllCore List Finite Discrete Distr.
-require import StdRing StdOrder StdBigop RealLub RealSeq.
+require import StdRing StdOrder StdBigop RealLub RealSeq RealSeries Bigalg.
 (*---*) import IterOp Bigint Bigreal Bigreal.BRA.
-(*---*) import Ring.IntID IntOrder RField RealOrder.
+(*---*) import Ring.IntID IntOrder RField RealOrder Number.
 
 type X.
 
@@ -73,7 +73,7 @@ have ddd : (fun (i : X) =>
       if mu1 da i <= mu1 db i then `|mu1 da i - mu1 db i| else 0%r) = (fun (i : X) => if mu1 da i <= mu1 db i then mu1 db i - mu1 da i else 0%r).
 apply fun_ext. rewrite /(==). move => ?.
 case ( mu1 da x <= mu1 db x).
-move => ?. smt.
+move => ?. rewrite -normrN. smt.
 auto.
 rewrite ddd. rewrite -big_mkcond. reflexivity.
 rewrite dd.
@@ -87,7 +87,69 @@ axiom compose_mu1 (f : X -> X) (da : X distr) (y : X) : mu1 (compose f da) y = b
 
 lemma compose_ll (f : X -> X) (da : X distr) : is_lossless da => compose f *)
 
-lemma f_inq : forall (f : X -> X), true => forall (da : X distr), is_lossless da => forall (db : X distr), is_lossless db => delta_d (dmap da f) (dmap da f) <= delta_d da db.
+
+lemma f_inq : forall (f : X -> X), true => forall (da : X distr), is_lossless da => forall (db : X distr), is_lossless db => delta_d (dmap da f) (dmap db f) <= delta_d da db.
 move => ? ? ? ? ? ?.
-rewrite (delta_d_alt da db) => //.
-rewrite delta_d_alt => //. apply dmap_ll => //. apply dmap_ll => //.
+rewrite /delta_d.
+rewrite ler_pmul2l. apply invr_gt0. auto.
+have lol : (fun (x : X) => `|mu1 (dmap da f) x - mu1 (dmap db f) x|) = (fun (x : X) => `|big predT (fun (x0 : X) => if f x0 = x then mu1 da x0 else 0%r) Support.enum - big predT (fun (x0 : X) => if f x0 = x then mu1 db x0 else 0%r) Support.enum|).
+apply fun_ext. rewrite /(==). move => ?.
+rewrite !dmap1E. rewrite !/(\o). rewrite !muE. simplify.
+rewrite {1 2}/pred1.
+
+rewrite (sumE_fin (fun (x0 : X) => if f x0 = x then mass da x0 else 0%r) (Support.enum)).
+apply Support.enum_uniq. simplify.
+move => ? ?. apply (Support.enumP x0).
+rewrite (sumE_fin (fun (x0 : X) => if f x0 = x then mass db x0 else 0%r) (Support.enum)).
+apply Support.enum_uniq. simplify.
+move => ? ?. apply (Support.enumP x0).
+
+have omg : forall (d : X distr), true => (fun (x0 : X) => if f x0 = x then mass d x0 else 0%r) = (fun (x0 : X) => if f x0 = x then mu1 d x0 else 0%r).
+move => ? _.
+apply fun_ext. rewrite /(==). move => ?.
+rewrite massE. trivial.
+rewrite !omg => //.
+rewrite lol.
+
+have dd : (fun (x : X) =>
+     `|big predT (fun (x0 : X) => if f x0 = x then mu1 da x0 else 0%r)
+         Support.enum -
+       big predT (fun (x0 : X) => if f x0 = x then mu1 db x0 else 0%r)
+         Support.enum|) = (fun (x : X) =>
+     `|big (fun (x0 : X) => f x0 = x) (fun (x0 : X) => mu1 da x0 - mu1 db x0)
+         Support.enum|).
+apply fun_ext. rewrite /(==). move => ?.
+rewrite sumrN. simplify.
+have meh : (fun (x0 : X) => - (if f x0 = x then mu1 db x0 else 0%r)) = (fun (x0 : X) => (if f x0 = x then - (mu1 db x0) else 0%r)).
+apply fun_ext. rewrite /(==). move => ?.
+by case (f x0 = x).
+rewrite meh.
+rewrite -big_mkcond.
+rewrite -big_mkcond.
+rewrite -big_split; simplify. auto.
+rewrite dd.
+
+have mhm : big predT (fun (x : X) => 
+    `|big (fun (x0 : X) => f x0 = x) (fun (x0 : X) => mu1 da x0 - mu1 db x0) Support.enum|) Support.enum <= big predT (fun (x : X) =>
+     big (fun (x0 : X) => f x0 = x) (fun (x0 : X) => `|mu1 da x0 - mu1 db x0|)
+         Support.enum) Support.enum.
+apply ler_sum.
+move => ? ?.
+simplify.
+apply big_normr.
+
+
+have ror : (big predT (fun (x : X) =>
+     big (fun (x0 : X) => f x0 = x) (fun (x0 : X) => `|mu1 da x0 - mu1 db x0|)
+         Support.enum) Support.enum) = (big predT (fun (x : X) => `|mu1 da x - mu1 db x|) Support.enum).
+rewrite (partition_big f predT predT (fun (x0 : X) => `|mu1 da x0 - mu1 db x0|) (Support.enum) (Support.enum)).
+by apply Support.enum_uniq.
+move => ? ? ?.
+split.
+apply Support.enumP.
+rewrite /predT => //.
+trivial.
+rewrite -ror.
+by apply mhm.
+qed.
+
