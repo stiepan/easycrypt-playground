@@ -1,4 +1,4 @@
-require import Bool AllCore List Finite Discrete Distr DBool.
+require import Bool AllCore List Finite Discrete Distr DBool Logic.
 require import StdRing StdOrder StdBigop RealLub RealSeq RealSeries Bigalg.
 (*---*) import IterOp Bigint Bigreal Bigreal.BRA.
 (*---*) import Ring.IntID IntOrder RField RealOrder Number.
@@ -134,6 +134,52 @@ by apply triangle.
 qed.
 
 
+lemma eq_l_size : forall (f : X -> X), injective f => forall (xs : X list), true => size (map f xs) = size xs.
+proof.
+move => f f_inj xs true_ {true_}.
+elim xs.
+simplify. trivial.
+move => x l IH.
+smt.
+qed.
+
+
+lemma uniq_map_support : forall (f : X -> X), injective f => uniq (map f Support.enum).
+proof.
+move => f f_inj.
+apply map_inj_in_uniq.
+move => x y x_in y_in {x_in y_in}.
+exact f_inj.
+exact Support.enum_uniq.
+qed.
+
+
+lemma whole_sup_map : forall (f : X -> X), injective f => forall (x : X), true => mem (map f Support.enum) x.
+move => f f_inj x x_ {x_}.
+have mem_eq_and_size : (forall x, mem (map f Support.enum) x <=> mem Support.enum x) /\ size (map f Support.enum) = size Support.enum.
+apply leq_size_perm.
+by exact/uniq_map_support.
+rewrite /(<=).
+move => x_X x_in_map {x_in_map}.
+by exact/Support.enumP.
+rewrite (eq_l_size f f_inj) => //.
+elim mem_eq_and_size.
+move => mem_eq eq_size {eq_size}.
+apply (mem_eq x).
+by exact/Support.enumP.
+qed.
+
+
+lemma perm_eq_supp : forall (f : X -> X), injective f => perm_eq (map f Support.enum) Support.enum.
+proof.
+move => f f_inj.
+rewrite /perm_eq allP => //=.
+move => x x_in_sup {x_in_sup}.
+rewrite count_uniq_mem. exact (uniq_map_support f f_inj).
+rewrite count_uniq_mem. exact (Support.enum_uniq).
+rewrite Support.enumP (whole_sup_map f f_inj) => //.
+qed.
+
 
 lemma mul_sides : forall (x, y, z : real), x <> 0%r => x * y = x * z <=> y = z.
 proof.
@@ -141,50 +187,47 @@ smt.
 qed.
 
 
-lemma fin_type_inj_sur_lemma : (forall n, 0 <= n => Support.card = n => forall (f : X -> X), injective f => surjective f).
-proof.
-elim. (* proceed by induction *)
-progress.
-rewrite /surjective. progress.
-have support_gt0: 0 < Support.card.
-apply Support.card_gt0.
-rewrite ltr_def in support_gt0.
-elim support_gt0.
-progress.
-progress.
-case (surjective f) => //.
-move => ?.
-rewrite /surjective in H3.
-rewrite negb_forall in H3.
-elim H3 => //=.
-move => //=.
-have neg_h3 :  (!(forall (x : X), exists (y : X), x = f y)) <=> (exists (x : X), forall (y : X), x <> f y).
-rewrite negb_forall. simplify. smt.
-admit.
-qed.
-
-
-
-lemma fin_inj_bi : forall (f : X -> X), injective f <=> bijective f.
-move => ?.
-apply iffI.
-have inj_sur : surjective f.
-rewrite /surjective.
-print Support.card. (*by the way, is it possible to print sth like proof term?*)
-admit. admit. admit.
-qed.
-
-
 lemma f_eq : forall (f : X -> X), injective f => forall (da : X distr), is_lossless da => forall (db : X distr), is_lossless db => delta_d (dmap da f) (dmap db f) = delta_d da db.
 proof.
-progress.
+move => f inj_f da da_ll db db_ll.
 rewrite /delta_d.
 rewrite mul_sides. rewrite invr_eq0 => //.
 rewrite delta_dmap_f => //.
-have single_el : exists (f': X -> X), cancel f f' /\ (fun (x : X) =>
-  `|big (fun (x0 : X) => f x0 = x) (fun (x0 : X) => mu1 da x0 - mu1 db x0) Support.enum|) = 
-(fun (x : X) => `|mu1 da (f' x) - mu1 db (f' x)|).
-admit. admit.
+rewrite -(eq_big_perm predT ((fun (x : X) =>
+     `|big (fun (x0 : X) => f x0 = x) (fun (x0 : X) => mu1 da x0 - mu1 db x0)
+         Support.enum|)) (map f Support.enum) Support.enum).
+by exact perm_eq_supp.
+rewrite big_map /(\o).
+have predT_composed : (fun (x : X) => predT (f x)) = predT.
+rewrite fun_ext /(==) => x.
+rewrite /predT => //.
+rewrite predT_composed.
+have fun_eq : (fun (x : X) => `|mu1 da x - mu1 db x|) = (fun (x : X) =>
+     `|big (fun (x0 : X) => f x0 = f x)
+         (fun (x0 : X) => mu1 da x0 - mu1 db x0) Support.enum|).
+rewrite fun_ext /(==) => x.
+have cond_pred1 : (fun (x0 : X) => f x0 = f x) = fun (x0 : X) => x0 = x.
+rewrite fun_ext /(==) => x0.
+case (x0 = x).
+move => eq_x0_x.
+rewrite eqT.
+congr.
+move => neq_x0_x.
+rewrite neqF.
+have inj_f_transposed : forall (x1, x2 : X), x1 <> x2 => f x1 <> f x2.
+move => x1 x2.
+rewrite -implybNN => //=.
+apply (inj_f x1 x2).
+apply inj_f_transposed. apply neq_x0_x.
+rewrite cond_pred1.
+rewrite -big_filter.
+have singleton : filter (transpose (=) x) Support.enum = [x].
+rewrite filter_pred1.
+rewrite Support.enum_spec. rewrite nseq1. trivial.
+rewrite singleton.
+rewrite big_seq1 => //=.
+rewrite fun_eq.
+reflexivity.
 qed.
 
 end Sdist.
