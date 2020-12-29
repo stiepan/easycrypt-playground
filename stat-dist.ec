@@ -140,7 +140,12 @@ move => f f_inj xs true_ {true_}.
 elim xs.
 simplify. trivial.
 move => x l IH.
-smt.
+(*smt*)
+have map_exp : map f (x :: l) = (f x) :: (map f l); trivial.
+rewrite map_exp.
+have x_l : size (x :: l) = 1 + size l; trivial.
+have fx_fl : size (f x :: map f l) = 1 + size (map f l); trivial.
+rewrite x_l fx_fl IH => //.
 qed.
 
 
@@ -260,6 +265,14 @@ module type ADV = {
 
 section.
 
+declare module Adv : ADV.
+
+axiom Adv_ll : islossless Adv.guess.
+
+op adv_distr : bits -> bool distr.
+
+axiom is_adv_distr &m (x : bits) (b : bool): (Pr[Adv.guess(x) @ &m : res = b]) = mu1 (adv_distr x) b.
+
 op da : bits distr.
 
 axiom da_ll : is_lossless da.
@@ -269,30 +282,90 @@ op db : bits distr.
 axiom db_ll : is_lossless db.
 
 
-module Exp (Adv : ADV) = {
-
-  var b, ba : bool
+local module Exp = {
 
   proc main() : bool = {
+    var b, ba : bool;
     var d : bits distr;
     var x : bits;
     b <$ {0,1};
     d <- if !b then da else db;
     x <$ d;
     ba <- Adv.guess(x);
-    return ba;
+    return ba = b;
   }
 }.
 
 
-declare module Adv : ADV{Exp}.
+module Sampling = {
 
-axiom Adv_ll : islossless Adv.guess.
+  proc sample(x : bits) : bool = {
+    var b_ : bool;
+    b_ <$ adv_distr x;
+    return b_;
+  }
+
+  proc main() : bool = {
+    var b, ba : bool;
+    var d : bits distr;
+    var x : bits;
+    b <$ {0,1};
+    d <- if !b then da else db;
+    x <$ d;
+    ba <@ sample(x);
+    return ba = b;
+  }
+}.
 
 
-lemma disting0 &m: (phoare [Exp(Adv).main : true ==> Exp.ba = Exp.b] = ((inv 2%r * big predT (fun x => Pr[Adv.guess(x) @ &m : false] * mu1 da x) Support.enum) + (inv 2%r * big predT (fun x => Pr[Adv.guess(x) @ &m : true] * mu1 db x) Support.enum))).
+local lemma adv_distr_eq : equiv[Exp.main ~ Sampling.main : true ==> ={res}].
 proof.
 proc.
+seq 3 3 : (={b, d, x}).
+rnd; wp; rnd; skip; progress.
+call (: ={x} ==> ={res}).
+bypr (res){1} (res){2} => //=.
+progress.
+have sample_pr_mu1 : Pr[Sampling.sample(x{2}) @ &2 : res = a] = mu1 (adv_distr x{2}) a.
+byphoare (: x{hr} = x{1} ==> res = a).
+proc.
+rnd. skip. progress. rewrite H. progress. rewrite eq_sym. assumption. auto.
+rewrite sample_pr_mu1.
+rewrite (is_adv_distr &1) H.
+trivial.
+skip. progress.
+qed.
+
+op support_fst : bits = head witness Support.enum.
+
+
+lemma disting_false: (forall (x : bits ), x \in Support.enum) => (phoare [Sampling.main : true ==> res] = ((inv 2%r * big predT (fun x => mu1 (adv_distr x) false * mu1 da x) Support.enum) + (inv 2%r * big predT (fun x => mu1 (adv_distr x) true * mu1 db x) Support.enum))).
+proof.
+
+lemma disting0: (forall (x : bits ), x \in Support.enum) => (phoare [Sampling.main : true ==> res] = ((inv 2%r * big predT (fun x => mu1 (adv_distr x) false * mu1 da x) Support.enum) + (inv 2%r * big predT (fun x => mu1 (adv_distr x) true * mu1 db x) Support.enum))).
+proof.
+move => ?.
+
+proc.
+seq 1 : (b = false) (inv 2%r) ( big predT (fun x => mu1 (adv_distr x) false * mu1 da x) Support.enum) (inv 2%r) (big predT (fun x => mu1 (adv_distr x) true * mu1 db x) Support.enum) true.
+rnd; skip; progress.
+rnd; skip; progress; rewrite dboolE_count => //=; rewrite /b2i => //=.
+
+elim Support.enum. auto.
+progress.
+proc.
+seq 1 : (b = false) (inv 2%r) ( big predT (fun x => mu1 (adv_distr x) false * mu1 da x) Support.enum) (inv 2%r) (big predT (fun x => mu1 (adv_distr x) true * mu1 db x) Support.enum) true.
+rnd; skip; progress.
+rnd; skip; progress; rewrite dboolE_count => //=; rewrite /b2i => //=.
+sp.
+
+
+
+rnd (x = support_fst) (mu1 da x) (mu1 (adv_distr x) false) (inv 2%r) 1%r => //=. 
+call (: true ==> true) (inv 2%r).
+proc.
+rnd; skip => //=.
+
 phoare split (
   inv 2%r * big predT (fun (x0 : bits) => Pr[Adv.guess(x0) @ &m : false] * mu1 da x0) Support.enum
 ) (
