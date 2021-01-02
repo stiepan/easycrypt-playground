@@ -249,7 +249,8 @@ clone import Sdist as Sbits with type X <- bits.
 
 
 module type ADV = {
-  proc *guess(x : bits) : bool
+  proc messages() : bits * bits
+  proc guess(x : bits) : bool
 }.
 
 op da : bits distr.
@@ -461,4 +462,63 @@ exact adv_ll.
 
 qed.
 
+op dkey : bits distr.
 
+axiom dkey_ll : is_lossless dkey.
+
+op mkey (x : bits) : bits distr = dmap dkey ((+^) x).
+
+module Otp(Adv : ADV) = {
+  
+  var m0, m1 : bits
+
+  proc init_messages() = {
+    (m0, m1) <@ Adv.messages();
+  }
+
+  proc exp() : bool = {
+    var b, ba : bool;
+    var k, m, x : bits;
+    b <$ {0,1};
+    m <- if !b then m0 else m1;
+    k <$ dkey;
+    x <- k +^ m;
+    ba <- Adv.guess(x);
+    return ba = b;
+  }
+  
+  proc main() : bool = {
+    var b_ : bool;
+    init_messages();
+    b_ <@ exp();
+    return b_;
+  }
+  
+}.
+
+
+lemma otp_exp_eq (Adv <: ADV{Sampling}) : equiv[Exp(Adv).main ~ Otp(Adv).exp : da = mkey Otp.m0{2} /\ db = mkey Otp.m1{2} /\ ={glob Adv} ==> ={res}].
+proc.
+seq 1 1 : (={b, glob Adv} /\ da = mkey Otp.m0{2} /\ db = mkey Otp.m1{2}).
+rnd; skip; progress.
+seq 2 3 : (={b, x, glob Adv} /\ da = mkey Otp.m0{2} /\ db = mkey Otp.m1{2}).
+sp; wp; rnd (fun (x : bits) => m{2} +^ x); skip. progress.
+rewrite xorwA xorwK xorwC xorw0; trivial.
+rewrite /select_d.
+have -> : (if !b{2} then da else db) = (if !b{2} then mkey Otp.m0{2} else mkey Otp.m1{2}).
+congr.
+have l_xor : forall (m : bits), (fun (x : bits) => m +^ x = m +^ kR) = (transpose (=) kR).
+move => m; rewrite fun_ext /(==) => x; rewrite eqboolP; split => eq. 
+rewrite (WRing.addrI m x kR); trivial.
+congr; assumption.
+rewrite /mkey; case (b{2}); progress; rewrite dmap1E /(\o) /pred1 l_xor; trivial.
+have ex_dkey : exists a, a \in dkey /\ xL = ((+^) (if !b{2} then Otp.m0{2} else Otp.m1{2})) a.
+apply supp_dmap. case (!b{2}) => [b_ | b_]; simplify; smt.
+elim ex_dkey; progress; rewrite xorwA xorwK xorwC xorw0; trivial.
+by rewrite xorwA xorwK xorwC xorw0.
+by rewrite xorwC xorwA xorwK xorwC xorw0.
+call (: true); skip; progress.
+qed
+
+
+lemma 
