@@ -111,7 +111,7 @@ rewrite merge_sum => //.
 qed.
 
 
-lemma f_inq : forall (f : X -> X), true => forall (da : X distr), is_lossless da => forall (db : X distr), is_lossless db => delta_d (dmap da f) (dmap db f) <= delta_d da db.
+lemma ex3_inq : forall (f : X -> X), true => forall (da : X distr), is_lossless da => forall (db : X distr), is_lossless db => delta_d (dmap da f) (dmap db f) <= delta_d da db.
 move => ? ? ? ? ? ?.
 rewrite /delta_d.
 rewrite ler_pmul2l. apply invr_gt0 => //=.
@@ -186,9 +186,9 @@ rewrite Support.enumP (whole_sup_map f f_inj) => //.
 qed.
 
 
-lemma f_eq : forall (f : X -> X), injective f => forall (da : X distr), is_lossless da => forall (db : X distr), is_lossless db => delta_d (dmap da f) (dmap db f) = delta_d da db.
+lemma ex3_eq (f : X -> X, da, db : X distr) : injective f =>  is_lossless da => is_lossless db => delta_d (dmap da f) (dmap db f) = delta_d da db.
 proof.
-move => f inj_f da da_ll db db_ll.
+move => inj_f da_ll db_ll.
 rewrite /delta_d.
 have -> : forall (x, y, z : real), x <> 0%r => x * y = x * z <=> y = z.
 smt. rewrite invr_eq0 => //=.
@@ -230,6 +230,17 @@ rewrite fun_eq.
 reflexivity.
 qed.
 
+lemma ex4_triangle (db, da, dc : X distr) : delta_d da dc <= delta_d da db + delta_d db dc.
+proof.
+rewrite /delta_d -mulrDr (ler_pmul2l (inv 2%r)); [by rewrite invr_gt0 | rewrite -big_split].
+apply ler_sum => //= => x predTx {predTx}.
+apply (ler_trans `|mu1 da x - mu1 db x + mu1 db x - mu1 dc x|); smt.
+qed.
+
+lemma ex4_symm (da, db : X distr) : delta_d da db = delta_d db da.
+proof.
+rewrite /delta_d; congr; congr; rewrite fun_ext /(==) => x; by rewrite distrC.
+qed.
 
 end Sdist.
 
@@ -462,6 +473,8 @@ op mkey (x : bits) : bits distr = dmap dkey ((+^) x).
 
 module Otp(Adv : ADV) = {
 
+  var m0, m1 : bits
+
   proc exp(m0, m1 : bits) : bool = {
     var b, ba : bool;
     var k, m, x : bits;
@@ -475,7 +488,6 @@ module Otp(Adv : ADV) = {
   
   proc main() : bool = {
     var b_ : bool;
-    var m0, m1;
     (m0, m1) <@ Adv.messages();
     b_ <@ exp(m0, m1);
     return b_;
@@ -483,6 +495,15 @@ module Otp(Adv : ADV) = {
   
 }.
 
+lemma inv_xor (x, y : bits) : x = y +^ (y +^ x).
+by rewrite xorwA xorwK xorwC xorw0.
+qed.
+
+lemma inj_xor (x : bits) : injective ((+^) x).
+proof.
+rewrite /injective => x0 y.
+by exact (WRing.addrI x x0 y).
+qed.
 
 lemma otp_exp_exp_main_eq (Adv <: ADV{Sampling}) : equiv[Exp(Adv).main ~ Otp(Adv).exp : ={glob Adv} /\ da{1} = mkey m0{2} /\ db{1} = mkey m1{2} ==> ={res}].
 proc.
@@ -500,13 +521,12 @@ rewrite /mkey; case (b{2}); progress; rewrite dmap1E /(\o) /pred1 l_xor; trivial
 have ex_dkey : exists a, a \in dkey /\ xL = ((+^) (if !b{2} then m0{2} else m1{2})) a.
 apply supp_dmap. case (!b{2}) => [b_ | b_]; simplify; smt.
 elim ex_dkey; progress; rewrite xorwA xorwK xorwC xorw0; trivial.
-by rewrite xorwA xorwK xorwC xorw0.
-by rewrite xorwC xorwA xorwK xorwC xorw0.
+by apply inv_xor.
+by rewrite xorwC.
 call (: true); skip; progress.
 qed.
 
-
-lemma opt_exp_eq (Adv <: ADV{Sampling}) (m0_p, m1_p : bits): islossless Adv.guess => phoare[Otp(Adv).exp : m0 = m0_p /\ m1 = m1_p ==> res] <= ((inv 2%r) * (1%r + delta_d (mkey m0_p) (mkey m1_p))).
+lemma otp_exp_eq (Adv <: ADV{Sampling}) (m0_p, m1_p : bits): islossless Adv.guess => phoare[Otp(Adv).exp : m0 = m0_p /\ m1 = m1_p ==> res] <= ((inv 2%r) * (1%r + delta_d (mkey m0_p) (mkey m1_p))).
 proof.
 move => adv_ll.
 bypr => &m [m0_eq m1_eq].
@@ -517,3 +537,41 @@ progress; trivial; [rewrite m0_eq | rewrite m1_eq]; trivial.
 apply (ex2 Adv); [exact adv_ll | apply dmap_ll; exact dkey_ll | apply dmap_ll; exact dkey_ll].
 qed.
 
+lemma otp_exp_lb (Adv <: ADV{Sampling}) : islossless Adv.guess => phoare[Otp(Adv).exp : true ==> res] <= ((inv 2%r) + delta_d dkey dunifx).
+move => adv_g_ll.
+bypr => &m t_{t_}.
+have ex_ps : (exists (m0_p : bits, m1_p : bits), m0{m} = m0_p /\ m1{m} = m1_p).
+exists m0{m}. by exists m1{m}.
+elim ex_ps => m0_p m1_p [m0_eq m1_eq].
+rewrite m0_eq m1_eq.
+apply (ler_trans ((inv 2%r) * (1%r + delta_d (mkey m0_p) (mkey m1_p))) Pr[Otp(Adv).exp(m0_p, m1_p) @ &m : res] (inv 2%r + delta_d dkey dunifx)).
+byphoare (: m0 = m0_p /\ m1 = m1_p ==> res); trivial.
+apply (otp_exp_eq Adv m0_p m1_p adv_g_ll).
+rewrite mulrDr => //=; rewrite ler_add2l.
+apply (ler_trans ((delta_d (mkey m0_p) dunifx + delta_d dunifx (mkey m1_p)) / 2%r)).
+rewrite (ler_pmul2r (inv 2%r)); first by rewrite invr_gt0.
+apply (ex4_triangle).
+rewrite (ex4_symm dunifx) /mkey.
+have dmap_uni : forall (ms : bits), dunifx = (dmap dunifx ((+^) ms)).
+move => ms.
+rewrite dmap_duniform; progress.
+by apply (WRing.addrI ms x y).
+rewrite /dunifx.
+apply eq_duniformP => x; split; progress.
+rewrite mapP; exists (ms +^ x); progress; [by exact Support.enumP | by exact inv_xor].
+by exact Support.enumP.
+rewrite {1}(dmap_uni m0_p). rewrite {2}(dmap_uni m1_p).
+rewrite ex3_eq; [by exact inj_xor | by exact dkey_ll | rewrite duniform_ll -size_eq0; smt | trivial].
+rewrite ex3_eq; [by exact inj_xor | by exact dkey_ll | rewrite duniform_ll -size_eq0; smt | trivial].
+by rewrite mulrDl double_half.
+qed.
+
+lemma ex5 (Adv <: ADV{Sampling}) : islossless Adv.guess => phoare[Otp(Adv).main : true ==> res] <= ((inv 2%r) + delta_d dkey dunifx).
+proof.
+move => adv_ll.
+proc.
+seq 1 : true 1%r (inv 2%r + delta_d dkey dunifx) 0%r 0%r; trivial.
+call (otp_exp_lb Adv); skip; progress.
+qed.
+
+print ex5.
